@@ -125,6 +125,7 @@ fn parse_and_write_book(
             let mut prev_line = format!("{}</p><p>", prev);
             let mut next_line = format!("</p><p>{}", next);
 
+            // handle section divisions
             if prev_line == "* * *</p><p>" {
                 prev_line = String::new();
             }
@@ -134,6 +135,7 @@ fn parse_and_write_book(
             if next_line == "</p><p>* * *" {
                 next_line = String::new();
             }
+            
             let paragraph_with_context = format!("{}{}{}", prev_line, curr, next_line);
 
             let out = OutputSchema {
