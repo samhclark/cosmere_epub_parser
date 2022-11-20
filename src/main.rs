@@ -1,4 +1,9 @@
-use std::{error::Error, fs::{self, File}, path::{PathBuf, Path}, io::{BufReader, Write}};
+use std::{
+    error::Error,
+    fs::{self, File},
+    io::{BufReader, Write},
+    path::{Path, PathBuf},
+};
 
 use epub::doc::EpubDoc;
 use html2text::from_read;
@@ -51,7 +56,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let display = path.display();
 
     // Open a file in write-only mode, returns `io::Result<File>`
-    let file = match File::create(&path) {
+    let file = match File::create(path) {
         Err(why) => panic!("couldn't create {}: {}", display, why),
         Ok(file) => file,
     };
@@ -65,7 +70,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     for path in epub_files {
         let doc = EpubDoc::new(path);
-        let full_title = doc.as_ref()
+        let full_title = doc
+            .as_ref()
             .unwrap()
             .mdata("title")
             .expect("All ePubs must have a title");
@@ -74,15 +80,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .to_lowercase()
                 .contains(it.title.to_lowercase().as_str())
         }) {
-            parse_and_write_book(&book, doc.unwrap(), &file);
+            parse_and_write_book(book, doc.unwrap(), &file);
         }
     }
 
     Ok(())
 }
 
-fn parse_and_write_book(book: &IndexableBook, mut doc: EpubDoc<BufReader<File>>, mut outfile: &File) {
-
+fn parse_and_write_book(
+    book: &IndexableBook,
+    mut doc: EpubDoc<BufReader<File>>,
+    mut outfile: &File,
+) {
     for chapter_index in book.first_chapter_index..=book.last_chapter_index {
         if book.skippable_chapters.contains(&chapter_index) {
             continue;
@@ -92,29 +101,74 @@ fn parse_and_write_book(book: &IndexableBook, mut doc: EpubDoc<BufReader<File>>,
         let chapter_title = doc.spine[chapter_index].clone();
         let this_page = doc.get_current().unwrap();
         let page_content = from_read(&this_page[..], usize::MAX);
-        for (i, line) in page_content.lines()
+        let lines_i_care_about: Vec<String> = page_content
+            .lines()
             .filter(|it| !it.trim().is_empty())
             .filter(|it| !it.trim().starts_with('['))
             .filter(|it| !it.trim().starts_with('<'))
-            .enumerate() {
-            let prev: Option<&str> = if i > 0 {
-                page_content.lines().nth(i - 1)
-            } else {
-                None
-            };
-            let next: Option<&str> = page_content.lines().nth(i + 1);
-            let prev_line = prev.map_or_else(String::new, |s| format!("{}</p><p>", s));
-            let next_line = next.map_or_else(String::new, |s| format!("</p><p>{}", s));
-            let paragraph_with_context = format!("{}{}{}", prev_line, line, next_line);
+            .filter(|it| !it.trim().starts_with('#'))
+            .filter(|it| !chapter_title.ends_with(it))
+            .map(|it| it.replace("**", ""))
+            .map(|it| it.replace(". . .", "…"))
+            .map(|it| it.replace(" …", "…"))
+            .collect();
+        for values in lines_i_care_about.windows(3) {
+            let prev = values
+                .first()
+                .expect(".windows() returns exactly 3 elements");
+            let curr = values
+                .get(1)
+                .expect(".windows() returns exactly 3 elements");
+            let next = values
+                .get(2)
+                .expect(".windows() returns exactly 3 elements");
+            let mut prev_line = format!("{}</p><p>", prev);
+            let mut next_line = format!("</p><p>{}", next);
+
+            if prev_line == "* * *</p><p>" {
+                prev_line = String::new();
+            }
+            if curr == "* * *" {
+                continue;
+            }
+            if next_line == "</p><p>* * *" {
+                next_line = String::new();
+            }
+            let paragraph_with_context = format!("{}{}{}", prev_line, curr, next_line);
 
             let out = OutputSchema {
                 book_title: book.title.clone(),
-                chapter_title: chapter_title.clone(),
-                searchable_text: paragraph_with_context, 
+                chapter_title: pretty_chapter(&chapter_title),
+                searchable_text: paragraph_with_context,
             };
             let mut json = serde_json::to_string(&out).unwrap();
             json.push('\n');
             outfile.write_all(json.as_bytes()).unwrap();
         }
     }
+}
+
+fn pretty_chapter(raw_chapter: &str) -> String {
+    if raw_chapter.to_ascii_lowercase() == "prologue" {
+        String::from("Prologue")
+    } else if raw_chapter.to_ascii_lowercase() == "epilogue" {
+        String::from("Epilogue")
+    } else if raw_chapter.to_ascii_lowercase().starts_with("chapter") {
+        let num: String = raw_chapter
+            .chars()
+            .into_iter()
+            .filter(char::is_ascii_digit)
+            .collect();
+        format!("Chapter {num}")
+    } else if raw_chapter.starts_with('x') && raw_chapter.ends_with(".html") {
+        handle_secret_history_chapter(raw_chapter)
+    } else {
+        String::from(raw_chapter)
+    }
+}
+
+fn handle_secret_history_chapter(raw_chapter: &str) -> String {
+    let part_number = raw_chapter.chars().nth(1).unwrap();
+    let chapter_number = raw_chapter.chars().nth(3).unwrap();
+    format!("Part {}, Chapter {}", part_number, chapter_number)
 }
