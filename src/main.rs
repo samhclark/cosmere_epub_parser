@@ -6,7 +6,7 @@ use std::{
 };
 
 use epub::doc::EpubDoc;
-use html2text::from_read;
+use html2text::{from_read_with_decorator, render::text_renderer::TextDecorator};
 use serde::Serialize;
 
 #[derive(Debug)]
@@ -70,7 +70,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Open a file in write-only mode, returns `io::Result<File>`
     let file = match File::create(path) {
-        Err(why) => panic!("couldn't create {}: {}", display, why),
+        Err(why) => panic!("couldn't create {display}: {why}"),
         Ok(file) => file,
     };
 
@@ -112,13 +112,23 @@ fn parse_and_write_book(
         doc.set_current_page(chapter_index)
             .expect("Indexes used in `skippable_chapters` must be valid");
         let chapter_title = doc.spine[chapter_index].clone();
-        let this_page = doc.get_current().unwrap();
-        let page_content = from_read(&this_page[..], usize::MAX);
+        let this_page_raw = doc.get_current().unwrap();
+        let this_page = String::from_utf8(this_page_raw).unwrap();
+        let this_page_replaced = this_page
+            .replace("<i>", "<em>")
+            .replace("</i>", "</em>")
+            .replace("<img", "<img alt=\"795f88d2-e400-42f0-bb88-d84cf308de1b\"");
+        let page_content = from_read_with_decorator(
+            this_page_replaced.as_bytes(),
+            usize::MAX,
+            MyDecorator::new(),
+        );
+        // println!("{}", page_content);
         let lines_i_care_about: Vec<String> = page_content
             .lines()
-            .filter(|it| !is_ignorable_line(&it))
+            .filter(|it| !is_ignorable_line(it))
             .filter(|it| !chapter_title.ends_with(it))
-            .map(|it| it.replace("*", ""))
+            .map(|it| it.replace('*', ""))
             .map(|it| it.replace(". . .", "…"))
             .map(|it| it.replace(" …", "…"))
             .collect();
@@ -133,30 +143,29 @@ fn parse_and_write_book(
                 .get(2)
                 .expect(".windows() returns exactly 3 elements");
 
-            if is_scene_border(&curr) {
+            if is_scene_border(curr) {
                 continue;
             }
 
             // handle scene divisions
-            let prev_line = if is_scene_border(&prev) || is_ignorable_line(&prev) {
+            let prev_line = if is_scene_border(prev) || is_ignorable_line(prev) {
                 String::new()
             } else {
-                format!("{}</p><p>", prev)
+                format!("{prev}</p><p>")
             };
 
-            let next_line = if is_scene_border(&next) || is_ignorable_line(&next) {
+            let next_line = if is_scene_border(next) || is_ignorable_line(next) {
                 String::new()
             } else {
-                format!("</p><p>{}", next)
+                format!("</p><p>{next}")
             };
 
-            
-            let paragraph_with_context = format!("{}{}{}", prev_line, curr, next_line);
+            let paragraph_with_context = format!("{prev_line}{curr}{next_line}");
 
             let out = OutputSchema {
                 book_title: book.title.clone(),
                 chapter_title: pretty_chapter(&chapter_title),
-                searchable_text: curr.clone(),
+                searchable_text: curr.clone().replace("<em>", "").replace("</em>", ""),
                 display_text: paragraph_with_context,
             };
             let mut json = serde_json::to_string(&out).unwrap();
@@ -169,20 +178,19 @@ fn parse_and_write_book(
 fn is_ignorable_line(line: &str) -> bool {
     let trimmed = line.trim();
 
-    return trimmed.is_empty() 
-      || trimmed.starts_with('[')
-      || trimmed.starts_with('<')
-      || trimmed.starts_with('#')
-      || trimmed.starts_with("│")
-      || trimmed.starts_with("─┴")
-      || trimmed.starts_with("─┬")
+    trimmed.is_empty()
+        || trimmed.starts_with('#')
+        || trimmed.starts_with('│')
+        || trimmed.starts_with("─┴")
+        || trimmed.starts_with("─┬")
 }
 
 fn is_scene_border(line: &str) -> bool {
-    let borders = vec!["* * *", "~"];
+    let borders = vec!["* * *", "~", "795f88d2-e400-42f0-bb88-d84cf308de1b"];
     borders.contains(&line)
 }
 
+#[allow(clippy::case_sensitive_file_extension_comparisons)]
 fn pretty_chapter(raw_chapter: &str) -> String {
     if raw_chapter.to_ascii_lowercase() == "prologue" {
         String::from("Prologue")
@@ -205,7 +213,7 @@ fn pretty_chapter(raw_chapter: &str) -> String {
 fn handle_secret_history_chapter(raw_chapter: &str) -> String {
     let part_number = raw_chapter.chars().nth(1).unwrap();
     let chapter_number = raw_chapter.chars().nth(3).unwrap();
-    format!("Part {}, Chapter {}", part_number, chapter_number)
+    format!("Part {part_number}, Chapter {chapter_number}")
 }
 
 fn map_by_hand(raw_chapter: &str) -> &str {
@@ -226,6 +234,91 @@ fn map_by_hand(raw_chapter: &str) -> &str {
         "Day_97.html" => "Day Ninety-Seven",
         "Day_98.html" => "Day Ninety-Eight",
         "Epilogue.html" => "Epilogue: Day One Hundred and One",
-        _ => raw_chapter
+        _ => raw_chapter,
+    }
+}
+
+#[derive(Clone, Debug)]
+struct MyDecorator {}
+
+impl MyDecorator {
+    pub const fn new() -> Self {
+        Self {}
+    }
+}
+
+impl TextDecorator for MyDecorator {
+    type Annotation = ();
+
+    fn decorate_code_start(&mut self) -> (String, Self::Annotation) {
+        (String::new(), ())
+    }
+
+    fn decorate_code_end(&mut self) -> String {
+        String::new()
+    }
+
+    fn decorate_em_start(&mut self) -> (String, Self::Annotation) {
+        (String::from("<em>"), ())
+    }
+
+    fn decorate_em_end(&mut self) -> String {
+        String::from("</em>")
+    }
+
+    fn decorate_image(&mut self, _title: &str) -> (String, Self::Annotation) {
+        (String::new(), ())
+    }
+
+    fn decorate_link_start(&mut self, _url: &str) -> (String, Self::Annotation) {
+        (String::new(), ())
+    }
+
+    fn decorate_link_end(&mut self) -> String {
+        String::new()
+    }
+
+    fn decorate_preformat_first(&mut self) -> Self::Annotation {}
+
+    fn decorate_preformat_cont(&mut self) -> Self::Annotation {}
+
+    fn decorate_strikeout_start(&mut self) -> (String, Self::Annotation) {
+        (String::from("<s>"), ())
+    }
+
+    fn decorate_strikeout_end(&mut self) -> String {
+        String::from("</s>")
+    }
+
+    fn decorate_strong_start(&mut self) -> (String, Self::Annotation) {
+        (String::new(), ())
+    }
+
+    fn decorate_strong_end(&mut self) -> String {
+        String::new()
+    }
+
+    fn header_prefix(&mut self, _level: usize) -> String {
+        String::new()
+    }
+
+    fn quote_prefix(&mut self) -> String {
+        String::new()
+    }
+
+    fn ordered_item_prefix(&mut self, _i: i64) -> String {
+        String::new()
+    }
+
+    fn unordered_item_prefix(&mut self) -> String {
+        String::new()
+    }
+
+    fn finalise(self) -> Vec<html2text::render::text_renderer::TaggedLine<Self::Annotation>> {
+        Vec::new()
+    }
+
+    fn make_subblock_decorator(&self) -> Self {
+        Self::new()
     }
 }
