@@ -22,6 +22,7 @@ struct OutputSchema {
     book_title: String,
     chapter_title: String,
     searchable_text: String,
+    display_text: String,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -49,6 +50,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             first_chapter_index: 5,
             last_chapter_index: 35,
             skippable_chapters: vec![7, 12, 16, 21, 25],
+        },
+        IndexableBook {
+            title: String::from("Warbreaker"),
+            first_chapter_index: 5,
+            last_chapter_index: 66,
+            skippable_chapters: vec![],
         },
     ];
 
@@ -108,7 +115,7 @@ fn parse_and_write_book(
             .filter(|it| !it.trim().starts_with('<'))
             .filter(|it| !it.trim().starts_with('#'))
             .filter(|it| !chapter_title.ends_with(it))
-            .map(|it| it.replace("**", ""))
+            .map(|it| it.replace("*", ""))
             .map(|it| it.replace(". . .", "…"))
             .map(|it| it.replace(" …", "…"))
             .collect();
@@ -122,32 +129,43 @@ fn parse_and_write_book(
             let next = values
                 .get(2)
                 .expect(".windows() returns exactly 3 elements");
-            let mut prev_line = format!("{}</p><p>", prev);
-            let mut next_line = format!("</p><p>{}", next);
 
-            // handle section divisions
-            if prev_line == "* * *</p><p>" {
-                prev_line = String::new();
-            }
-            if curr == "* * *" {
+            if is_scene_border(&curr) {
                 continue;
             }
-            if next_line == "</p><p>* * *" {
-                next_line = String::new();
-            }
+
+            // handle scene divisions
+            let prev_line = if is_scene_border(&prev) {
+                String::new()
+            } else {
+                format!("{}</p><p>", prev)
+            };
+
+            let next_line = if is_scene_border(&next) {
+                String::new()
+            } else {
+                format!("</p><p>{}", next)
+            };
+
             
             let paragraph_with_context = format!("{}{}{}", prev_line, curr, next_line);
 
             let out = OutputSchema {
                 book_title: book.title.clone(),
                 chapter_title: pretty_chapter(&chapter_title),
-                searchable_text: paragraph_with_context,
+                searchable_text: curr.clone(),
+                display_text: paragraph_with_context,
             };
             let mut json = serde_json::to_string(&out).unwrap();
             json.push('\n');
             outfile.write_all(json.as_bytes()).unwrap();
         }
     }
+}
+
+fn is_scene_border(line: &str) -> bool {
+    let borders = vec!["* * *", "~"];
+    borders.contains(&line)
 }
 
 fn pretty_chapter(raw_chapter: &str) -> String {
