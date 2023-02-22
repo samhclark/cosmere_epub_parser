@@ -54,7 +54,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         IndexableBook {
             title: String::from("Warbreaker"),
             first_chapter_index: 5,
-            last_chapter_index: 66,
+            last_chapter_index: 65,
+            skippable_chapters: vec![],
+        },
+        IndexableBook {
+            title: String::from("The Emperor's Soul"),
+            first_chapter_index: 3,
+            last_chapter_index: 18,
             skippable_chapters: vec![],
         },
     ];
@@ -110,10 +116,7 @@ fn parse_and_write_book(
         let page_content = from_read(&this_page[..], usize::MAX);
         let lines_i_care_about: Vec<String> = page_content
             .lines()
-            .filter(|it| !it.trim().is_empty())
-            .filter(|it| !it.trim().starts_with('['))
-            .filter(|it| !it.trim().starts_with('<'))
-            .filter(|it| !it.trim().starts_with('#'))
+            .filter(|it| !is_ignorable_line(&it))
             .filter(|it| !chapter_title.ends_with(it))
             .map(|it| it.replace("*", ""))
             .map(|it| it.replace(". . .", "…"))
@@ -135,13 +138,13 @@ fn parse_and_write_book(
             }
 
             // handle scene divisions
-            let prev_line = if is_scene_border(&prev) {
+            let prev_line = if is_scene_border(&prev) || is_ignorable_line(&prev) {
                 String::new()
             } else {
                 format!("{}</p><p>", prev)
             };
 
-            let next_line = if is_scene_border(&next) {
+            let next_line = if is_scene_border(&next) || is_ignorable_line(&next) {
                 String::new()
             } else {
                 format!("</p><p>{}", next)
@@ -163,6 +166,18 @@ fn parse_and_write_book(
     }
 }
 
+fn is_ignorable_line(line: &str) -> bool {
+    let trimmed = line.trim();
+
+    return trimmed.is_empty() 
+      || trimmed.starts_with('[')
+      || trimmed.starts_with('<')
+      || trimmed.starts_with('#')
+      || trimmed.starts_with("│")
+      || trimmed.starts_with("─┴")
+      || trimmed.starts_with("─┬")
+}
+
 fn is_scene_border(line: &str) -> bool {
     let borders = vec!["* * *", "~"];
     borders.contains(&line)
@@ -179,11 +194,11 @@ fn pretty_chapter(raw_chapter: &str) -> String {
             .into_iter()
             .filter(char::is_ascii_digit)
             .collect();
-        format!("Chapter {num}")
+        format!("Chapter {}", num.trim_start_matches('0'))
     } else if raw_chapter.starts_with('x') && raw_chapter.ends_with(".html") {
         handle_secret_history_chapter(raw_chapter)
     } else {
-        String::from(raw_chapter)
+        String::from(map_by_hand(raw_chapter))
     }
 }
 
@@ -191,4 +206,26 @@ fn handle_secret_history_chapter(raw_chapter: &str) -> String {
     let part_number = raw_chapter.chars().nth(1).unwrap();
     let chapter_number = raw_chapter.chars().nth(3).unwrap();
     format!("Part {}, Chapter {}", part_number, chapter_number)
+}
+
+fn map_by_hand(raw_chapter: &str) -> &str {
+    match raw_chapter {
+        "Prologue.html" => "Prologue",
+        "Day_02.html" => "Day Two",
+        "Day_03.html" => "Day Three",
+        "Day_05.html" => "Day Five",
+        "Day_12.html" => "Day Twelve",
+        "Day_17.html" => "Day Seventeen",
+        "Day_30.html" => "Day Thirty",
+        "Day_42.html" => "Day Forty-Two",
+        "Day_58.html" => "Day Fifty-Eight",
+        "Day_59.html" => "Day Fifty-Nine",
+        "Day_70.html" => "Day Seventy",
+        "Day_76.html" => "Day Seventy-Six",
+        "Day_85.html" => "Day Eighty-Five",
+        "Day_97.html" => "Day Ninety-Seven",
+        "Day_98.html" => "Day Ninety-Eight",
+        "Epilogue.html" => "Epilogue: Day One Hundred and One",
+        _ => raw_chapter
+    }
 }
