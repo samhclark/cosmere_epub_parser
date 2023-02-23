@@ -63,6 +63,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             last_chapter_index: 18,
             skippable_chapters: vec![],
         },
+        IndexableBook {
+            title: String::from("The Hope of Elantris"),
+            first_chapter_index: 28,
+            last_chapter_index: 28,
+            skippable_chapters: vec![],
+        },
     ];
 
     let path = Path::new("output.json");
@@ -83,15 +89,18 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     for path in epub_files {
         let doc = EpubDoc::new(path);
-        let full_title = doc
+        let epub_title = doc
             .as_ref()
             .unwrap()
             .mdata("title")
             .expect("All ePubs must have a title");
+        println!("Found epub titled: {epub_title}");
         if let Some(book) = all_books.iter().find(|it| {
-            full_title
+            epub_title
                 .to_lowercase()
                 .contains(it.title.to_lowercase().as_str())
+                || (epub_title.contains("Arcanum Unbounded")
+                    && is_in_arcanum_unbounded(&it.title))
         }) {
             parse_and_write_book(book, doc.unwrap(), &file);
         }
@@ -105,6 +114,7 @@ fn parse_and_write_book(
     mut doc: EpubDoc<BufReader<File>>,
     mut outfile: &File,
 ) {
+    println!("Parsing {}", book.title);
     for chapter_index in book.first_chapter_index..=book.last_chapter_index {
         if book.skippable_chapters.contains(&chapter_index) {
             continue;
@@ -117,7 +127,9 @@ fn parse_and_write_book(
         let this_page_replaced = this_page
             .replace("<i>", "<em>")
             .replace("</i>", "</em>")
-            .replace("<img", "<img alt=\"795f88d2-e400-42f0-bb88-d84cf308de1b\"");
+            .replace("<img", "<img alt=\"795f88d2-e400-42f0-bb88-d84cf308de1b\"")
+            .replace("<p class=\"Part-Title-pt\"><a href=\"contents.xhtml#c_pt3\"><span class=\"ePub-SC\">THE</span><br/>HOPE<br/><span class=\"ePub-SC\">OF</span><br/>ELANTRIS</a></p>", "")
+            .replace("<p class=\"Design-Note-dn\"><span class=\"R1\">This story takes place after and contains major spoilers for</span> <span class=\"ePub-I\">Elantris.</span></p>", "");
         let page_content = from_read_with_decorator(
             this_page_replaced.as_bytes(),
             usize::MAX,
@@ -128,7 +140,7 @@ fn parse_and_write_book(
             .lines()
             .filter(|it| !is_ignorable_line(it))
             .filter(|it| !chapter_title.ends_with(it))
-            .map(|it| it.replace('*', ""))
+            .map(|it| it.replace("**", ""))
             .map(|it| it.replace(". . .", "…"))
             .map(|it| it.replace(" …", "…"))
             .collect();
@@ -164,7 +176,7 @@ fn parse_and_write_book(
 
             let out = OutputSchema {
                 book_title: book.title.clone(),
-                chapter_title: pretty_chapter(&chapter_title),
+                chapter_title: pretty_chapter(&book.title, &chapter_title),
                 searchable_text: curr.clone().replace("<em>", "").replace("</em>", ""),
                 display_text: paragraph_with_context,
             };
@@ -191,8 +203,10 @@ fn is_scene_border(line: &str) -> bool {
 }
 
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
-fn pretty_chapter(raw_chapter: &str) -> String {
-    if raw_chapter.to_ascii_lowercase() == "prologue" {
+fn pretty_chapter(book_title: &str, raw_chapter: &str) -> String {
+    if book_title.eq_ignore_ascii_case("The Hope of Elantris") {
+        String::new()
+    } else if raw_chapter.to_ascii_lowercase() == "prologue" {
         String::from("Prologue")
     } else if raw_chapter.to_ascii_lowercase() == "epilogue" {
         String::from("Epilogue")
@@ -235,6 +249,19 @@ fn map_by_hand(raw_chapter: &str) -> &str {
         "Day_98.html" => "Day Ninety-Eight",
         "Epilogue.html" => "Epilogue: Day One Hundred and One",
         _ => raw_chapter,
+    }
+}
+
+fn is_in_arcanum_unbounded(title: &str) -> bool {
+    match title {
+        "The Hope of Elantris"
+        | "The Eleventh Metal"
+        | "Allomancer Jak and the Pits of Eltania"
+        | "White Sand"
+        | "Shadows for Silence in the Forests of Hell"
+        | "Sixth of the Dusk"
+        | "Edgedancer" => true,
+        _ => false,
     }
 }
 
