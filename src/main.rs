@@ -69,6 +69,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             last_chapter_index: 28,
             skippable_chapters: vec![],
         },
+        IndexableBook {
+            title: String::from("The Way of Kings"),
+            first_chapter_index: 8,
+            last_chapter_index: 104, 
+            skippable_chapters: vec![9, 11, 27, 49, 77, 96],
+        }
     ];
 
     let path = Path::new("output.json");
@@ -119,10 +125,9 @@ fn parse_and_write_book(
         if book.skippable_chapters.contains(&chapter_index) {
             continue;
         }
-        doc.set_current_page(chapter_index)
-            .expect("Indexes used in `skippable_chapters` must be valid");
+        doc.set_current_page(chapter_index);
         let chapter_title = doc.spine[chapter_index].clone();
-        let this_page_raw = doc.get_current().unwrap();
+        let (this_page_raw, _mime_type) = doc.get_current().unwrap();
         let this_page = String::from_utf8(this_page_raw).unwrap();
         let this_page_replaced = this_page
             .replace("<i>", "<em>")
@@ -195,6 +200,7 @@ fn is_ignorable_line(line: &str) -> bool {
         || trimmed.starts_with('│')
         || trimmed.starts_with("─┴")
         || trimmed.starts_with("─┬")
+        || trimmed.starts_with("───────")
 }
 
 fn is_scene_border(line: &str) -> bool {
@@ -204,14 +210,17 @@ fn is_scene_border(line: &str) -> bool {
 
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
 fn pretty_chapter(book_title: &str, raw_chapter: &str) -> String {
+    let lowercase_chapter = raw_chapter.to_ascii_lowercase();
     if book_title.eq_ignore_ascii_case("The Hope of Elantris") {
         String::new()
-    } else if raw_chapter.to_ascii_lowercase() == "prologue" {
+    } else if lowercase_chapter == "pre" {
+        String::from("Prelude")
+    } else if lowercase_chapter == "prologue" || lowercase_chapter == "pro" {
         String::from("Prologue")
-    } else if raw_chapter.to_ascii_lowercase() == "epilogue" {
+    } else if lowercase_chapter == "epilogue" || lowercase_chapter == "epi" {
         String::from("Epilogue")
-    } else if raw_chapter.to_ascii_lowercase().starts_with("chapter") {
-        let num: String = raw_chapter
+    } else if lowercase_chapter.starts_with("chapter") || lowercase_chapter.starts_with("c"){
+        let num: String = lowercase_chapter
             .chars()
             .into_iter()
             .filter(char::is_ascii_digit)
@@ -248,6 +257,16 @@ fn map_by_hand(raw_chapter: &str) -> &str {
         "Day_97.html" => "Day Ninety-Seven",
         "Day_98.html" => "Day Ninety-Eight",
         "Epilogue.html" => "Epilogue: Day One Hundred and One",
+        "p01a_c01" => "Interlude 1",
+        "p01a_c02" => "Interlude 2",
+        "p01a_c03" => "Interlude 3",
+        "p02a_c04" => "Interlude 4",
+        "p02a_c05" => "Interlude 5",
+        "p02a_c06" => "Interlude 6",
+        "p03a_c07" => "Interlude 7",
+        "p03a_c08" => "Interlude 8",
+        "p03a_c09" => "Interlude 9",
+        "end-note" => "Endnote",
         _ => raw_chapter,
     }
 }
