@@ -293,7 +293,7 @@ impl TextDecorator for MyDecorator {
         String::from("</em>")
     }
 
-    fn decorate_image(&mut self, _title: &str) -> (String, Self::Annotation) {
+    fn decorate_image(&mut self, _src: &str,_title: &str) -> (String, Self::Annotation) {
         (String::new(), ())
     }
 
@@ -341,7 +341,7 @@ impl TextDecorator for MyDecorator {
         String::new()
     }
 
-    fn finalise(self) -> Vec<html2text::render::text_renderer::TaggedLine<Self::Annotation>> {
+    fn finalise(&mut self, _links: Vec<String>) -> Vec<html2text::render::text_renderer::TaggedLine<Self::Annotation>> {
         Vec::new()
     }
 
